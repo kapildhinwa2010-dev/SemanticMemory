@@ -1,18 +1,18 @@
-# SemanticMemory - Fact memory with alias-based semantic recall
+# SemanticMemory - Alias-aware semantic recall over facts
 # Part of the Kapildhinwa2010-dev Toolkit.
 
-"""KnowledgeNet - facts, alias derivation and chain reasoning.
+"""SemanticMemory - alias-aware semantic recall over facts.
 
-Lineage: reserv.dean-part-2 (HELIX). Facts are stored as (subject, predicate,
-object) triples; aliases are derived transitively from equality facts; chain
-reasoning walks predicates to answer multi-hop queries.
+Lineage: reserv.dean-part-2 (HELIX). On top of the shared triple store
+this repo focuses on RECALL: direct hits are returned first, then
+co-occurrence-ranked related facts; topics are canonicalized through
+the ``same_as`` alias closure so "rob" finds facts stored under "bob".
+Graph operations and causal analysis live in the sibling repos.
 """
 
 from __future__ import annotations
 
 from collections import defaultdict
-
-import numpy as np
 
 __all__ = ["Fact", "KnowledgeNet"]
 
@@ -44,7 +44,7 @@ class Fact:
 
 
 class KnowledgeNet:
-    """Zero-overhead fact base with alias and chain reasoning."""
+    """Fact store with indexed direct and reverse queries."""
 
     def __init__(self) -> None:
         self._facts: set = set()
@@ -120,14 +120,47 @@ class KnowledgeNet:
             current = nxt[0]
         return hops
 
-    def interference(self, query: str, top_k: int = 3) -> list:
-        """Rank facts related to ``query`` by co-occurrence interference."""
+    def _canonical(self, name: str) -> str:
+        return self.derive_aliases().get(name, name)
+
+    def recall(self, topic: str, top_k: int = 5) -> list:
+        """Facts about ``topic``: direct hits first, then co-occurrence ranked.
+
+        ``topic`` is canonicalized through the alias closure, so facts
+        stored under any alias of the topic are found. Returns at most
+        top_k facts, direct matches first.
+        """
         if top_k < 1:
             raise ValueError("top_k must be >= 1")
-        scores: dict = {}
-        for fact in self._facts:
-            if query in (fact.subject, fact.object):
-                related = self.query(subject=fact.object) + self.query(obj=fact.subject)
-                scores[fact] = len(related)
-        ranked = sorted(scores.items(), key=lambda kv: (-kv[1], kv[0].as_tuple()))
-        return [fact for fact, _ in ranked[:top_k]]
+        canonical = self._canonical(topic)
+        direct: list = []
+        seen_ids: set = set()
+        for f in self.query(subject=canonical) + self.query(obj=canonical):
+            if id(f) not in seen_ids:
+                seen_ids.add(id(f))
+                direct.append(f)
+        if len(direct) >= top_k:
+            return sorted(direct, key=lambda f: f.as_tuple())[:top_k]
+        for f in self.interference(topic, top_k=top_k):
+            if id(f) not in seen_ids:
+                seen_ids.add(id(f))
+                direct.append(f)
+        return sorted(direct, key=lambda f: f.as_tuple())[:top_k]
+
+    def related_topics(self, topic: str, top_k: int = 3) -> list:
+        """Topics co-occurring with ``topic`` (alias-aware), ranked by count."""
+        if top_k < 1:
+            raise ValueError("top_k must be >= 1")
+        canonical = self._canonical(topic)
+        targets = {topic, canonical}
+        counts: dict = {}
+        for f in self._facts:
+            other = None
+            if f.subject in targets:
+                other = f.object
+            elif f.object in targets:
+                other = f.subject
+            if other and other not in targets:
+                counts[other] = counts.get(other, 0) + 1
+        ranked = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+        return [t for t, _ in ranked[:top_k]]

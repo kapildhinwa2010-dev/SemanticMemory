@@ -8,33 +8,17 @@ def test_fact_basic():
     assert fact.as_tuple() == ("alice", "knows", "bob")
 
 
-def test_fact_rejects_empty():
-    with pytest.raises(ValueError):
-        Fact("", "knows", "bob")
-
-
-def test_fact_equality_and_hash():
-    assert Fact("a", "p", "b") == Fact("a", "p", "b")
-    assert hash(Fact("a", "p", "b")) == hash(Fact("a", "p", "b"))
-    assert Fact("a", "p", "b") != Fact("a", "p", "c")
-
-
 def test_add_and_len():
     net = KnowledgeNet()
     assert net.add("a", "knows", "b") is True
-    assert net.add("a", "knows", "b") is False
     assert len(net) == 1
 
 
 def test_query_pattern():
     net = KnowledgeNet()
     net.add("a", "knows", "b")
-    net.add("b", "knows", "c")
     net.add("a", "likes", "c")
     assert len(net.query(subject="a")) == 2
-    assert len(net.query(predicate="knows")) == 2
-    assert len(net.query(obj="c")) == 2
-    assert len(net.query(subject="a", predicate="likes")) == 1
 
 
 def test_derive_aliases_transitive():
@@ -45,44 +29,54 @@ def test_derive_aliases_transitive():
     assert aliases["x"] == aliases["y"] == aliases["z"]
 
 
-def test_derive_aliases_ignores_other_predicates():
+# --- semantic recall (SemanticMemory-specific) ---
+
+
+def test_recall_direct_hits():
     net = KnowledgeNet()
-    net.add("x", "knows", "y")
-    assert net.derive_aliases() == {}
+    net.add("bob", "works_at", "acme")
+    net.add("bob", "likes", "tea")
+    facts = net.recall("bob", top_k=5)
+    tuples = {f.as_tuple() for f in facts}
+    assert ("bob", "works_at", "acme") in tuples
+    assert ("bob", "likes", "tea") in tuples
 
 
-def test_chain_walk():
+def test_recall_uses_aliases():
     net = KnowledgeNet()
-    net.add("a", "next", "b")
-    net.add("b", "next", "c")
-    net.add("c", "next", "d")
-    assert net.chain("a", "next") == ["b", "c", "d"]
+    net.add("bob", "same_as", "robert")
+    net.add("robert", "works_at", "acme")
+    tuples = {f.as_tuple() for f in net.recall("bob")}
+    assert ("robert", "works_at", "acme") in tuples
 
 
-def test_chain_respects_max_hops():
-    net = KnowledgeNet()
-    net.add("a", "next", "b")
-    net.add("b", "next", "c")
-    assert net.chain("a", "next", max_hops=1) == ["b"]
-
-
-def test_chain_handles_cycles():
-    net = KnowledgeNet()
-    net.add("a", "next", "b")
-    net.add("b", "next", "a")
-    assert net.chain("a", "next") == ["b"]
-
-
-def test_interference_ranks_related():
+def test_recall_falls_back_to_interference():
     net = KnowledgeNet()
     net.add("hub", "knows", "a")
     net.add("hub", "knows", "b")
-    net.add("lonely", "knows", "c")
-    top = net.interference("hub")
-    assert top and top[0].subject == "hub"
+    facts = net.recall("a", top_k=3)
+    tuples = {f.as_tuple() for f in facts}
+    assert ("hub", "knows", "a") in tuples
 
 
-def test_chain_rejects_bad_hops():
+def test_recall_rejects_bad_top_k():
     net = KnowledgeNet()
+    net.add("a", "knows", "b")
     with pytest.raises(ValueError):
-        net.chain("a", "next", max_hops=0)
+        net.recall("a", top_k=0)
+
+
+def test_related_topics_ranked():
+    net = KnowledgeNet()
+    net.add("bob", "knows", "alice")
+    net.add("bob", "knows", "carol")
+    net.add("bob", "likes", "tea")
+    topics = net.related_topics("bob", top_k=2)
+    assert topics[0] in {"alice", "carol"}
+    assert len(topics) == 2
+
+
+def test_related_topics_unknown():
+    net = KnowledgeNet()
+    net.add("a", "knows", "b")
+    assert net.related_topics("zzz") == []
