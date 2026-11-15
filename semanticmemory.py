@@ -123,6 +123,18 @@ class KnowledgeNet:
     def _canonical(self, name: str) -> str:
         return self.derive_aliases().get(name, name)
 
+    def interference(self, query: str, top_k: int = 3) -> list:
+        """Rank facts related to ``query`` by co-occurrence interference."""
+        if top_k < 1:
+            raise ValueError("top_k must be >= 1")
+        scores: dict = {}
+        for fact in self._facts:
+            if query in (fact.subject, fact.object):
+                related = self.query(subject=fact.object) + self.query(obj=fact.subject)
+                scores[fact] = len(related)
+        ranked = sorted(scores.items(), key=lambda kv: (-kv[1], kv[0].as_tuple()))
+        return [fact for fact, _ in ranked[:top_k]]
+
     def recall(self, topic: str, top_k: int = 5) -> list:
         """Facts about ``topic``: direct hits first, then co-occurrence ranked.
 
@@ -132,13 +144,18 @@ class KnowledgeNet:
         """
         if top_k < 1:
             raise ValueError("top_k must be >= 1")
-        canonical = self._canonical(topic)
+        # Expand to the full alias component (same_as is symmetric): a query for
+        # any alias must find facts stored under every equivalent name.
+        aliases = self.derive_aliases()
+        canonical = aliases.get(topic, topic)
+        names = {n for n, c in aliases.items() if c == canonical} or {topic}
         direct: list = []
         seen_ids: set = set()
-        for f in self.query(subject=canonical) + self.query(obj=canonical):
-            if id(f) not in seen_ids:
-                seen_ids.add(id(f))
-                direct.append(f)
+        for name in sorted(names):
+            for f in self.query(subject=name) + self.query(obj=name):
+                if id(f) not in seen_ids:
+                    seen_ids.add(id(f))
+                    direct.append(f)
         if len(direct) >= top_k:
             return sorted(direct, key=lambda f: f.as_tuple())[:top_k]
         for f in self.interference(topic, top_k=top_k):
