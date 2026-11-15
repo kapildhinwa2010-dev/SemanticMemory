@@ -1,7 +1,8 @@
 # SemanticMemory
 
 [![CI](https://github.com/kapildhinwa2010-dev/SemanticMemory/actions/workflows/ci.yml/badge.svg)](https://github.com/kapildhinwa2010-dev/SemanticMemory/actions/workflows/ci.yml)
-[![CI](https://github.com/kapildhinwa2010-dev/SemanticMemory/actions/workflows/codeql.yml/badge.svg)](https://github.com/kapildhinwa2010-dev/SemanticMemory/actions/workflows/codeql.yml)
+[![CodeQL](https://github.com/kapildhinwa2010-dev/SemanticMemory/actions/workflows/codeql.yml/badge.svg)](https://github.com/kapildhinwa2010-dev/SemanticMemory/actions/workflows/codeql.yml)
+
 
 Alias-aware semantic recall: direct hits first, then co-occurrence-ranked related facts.
 
